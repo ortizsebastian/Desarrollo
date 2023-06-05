@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using CompraGamer.API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using System.Text.RegularExpressions;
 
 namespace CompraGamer.API.Controllers
 {
@@ -31,29 +32,21 @@ namespace CompraGamer.API.Controllers
         }
 
         // GET: api/Clientes/5
-        [HttpGet("{id}")]
+        [HttpGet("{id:int}/GetClienteId")]
         public async Task<ActionResult<Cliente>> GetClienteId(int id)
         {
             var cliente = await _context.Clientes.FindAsync(id);
-
-            if (cliente == null)
-            {
-                return NotFound();
-            }
+            if (cliente == null) return NotFound();
 
             return cliente;
         }
 
         // GET: api/Clientes/5
-        [HttpGet("{dni}")]
-        public async Task<ActionResult<Cliente>> GetClienteDNI(int dni)
+        [HttpGet("{dni:int}/GetClienteDNI")]
+        public async Task<ActionResult<IEnumerable<Cliente>>> GetClienteDNI(long dni)
         {
-            var cliente = await _context.Clientes.FindAsync(dni);
-
-            if (cliente == null)
-            {
-                return NotFound();
-            }
+            var cliente = await _context.Clientes.Where(c => c.Dni == dni).ToListAsync();
+            if (cliente == null) return null;
 
             return cliente;
         }
@@ -66,17 +59,17 @@ namespace CompraGamer.API.Controllers
         {
             if (ModelState.IsValid)
             {
-                if (ValidarCuit(cliente.Cuit))
-                {
-                    _context.Clientes.Add(cliente);
-                    await _context.SaveChangesAsync();
 
-                    return CreatedAtAction("GetCliente", new { id = cliente.Id }, cliente);
-                }
-                else
-                {
-                    return BadRequest("Cuit invalido");
-                }
+                if (!ValidarCuit(cliente.Cuit)) return BadRequest("Cuit inválido.");
+                if (!ValidarEmail(cliente.Email)) return BadRequest("Email inválido.");
+                if (!ValidarDNI(cliente.Dni)) return BadRequest("DNI inválido.");
+                if (!ValidarTelefono(cliente.Telefono.ToString())) return BadRequest("Telefono inválido.");
+                if (!ValidarFechaNacimiento(cliente.FechaNacimiento)) return BadRequest("Fecha de Nacimiento inválida.");
+                
+                _context.Clientes.Add(cliente);
+                await _context.SaveChangesAsync();
+
+                return CreatedAtAction("GetClienteId", new { id = cliente.Id }, cliente);            
             }
             else
             {
@@ -84,41 +77,56 @@ namespace CompraGamer.API.Controllers
             }
         }
 
-        private bool ValidarCuit(long? cuit)
+        public static bool ValidarFechaNacimiento(DateTime fecha)
         {
-            int digitoVerificador = -1;
-            List<int> digitosCuit = GetDigitos(Convert.ToInt32(cuit));
-            List<int> digitosValidadores = new() { 5, 4, 3, 2, 7, 6, 5, 4, 3, 2 };
-            int suma = 0;
+            if (fecha.Date <= DateTime.Now.Date) return true;
+            return false;
+        }
 
-            digitoVerificador = digitosCuit.Last();
-            digitosCuit.RemoveAt(digitosCuit.Count - 1);
-            for (int i = 0; i < digitosValidadores.Count; i++)
-            {
-                suma += digitosValidadores[i] * digitosCuit[i];
-            }
+        public static bool ValidarTelefono(string telefono)
+        {
+            string patron = @"^\d{10}$";
+            return Regex.IsMatch(telefono, patron);
+        }
 
-            int resto = suma % 11;
-            int resultado = suma / 11 - resto;
+        public static bool ValidarDNI(long? dni)
+        {
+            if (dni == null) return false; 
 
-            if (resultado == 1) resultado = 9;
+            string patron = @"^\d{7,8}$";
+            return Regex.IsMatch(dni.ToString(), patron);
+        }
 
-            if (resultado == digitoVerificador) return true;
+        public static bool ValidarEmail(string email)
+        {
+            string patron = @"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$";
+            return Regex.IsMatch(email, patron);
+        }
+
+        private static bool ValidarCuit(long? cuit)
+        {
+            if (cuit == null) return false;
+            int[] cuitArray = GetDigitos(cuit);
+            
+            if (cuitArray.Length != 11) return false;
+
+            int[] baseArray = { 5, 4, 3, 2, 7, 6, 5, 4, 3, 2 };
+
+            int aux = 0;
+            for (int i = 0; i < 10; i++) aux += cuitArray[i] * baseArray[i];
+
+            int result = 11 - (aux % 11);
+            if (result >= 0 && result <= 9) return true;
 
             return false;
         }
 
-        private static List<int> GetDigitos(int numero)
+        private static int[] GetDigitos(long? cuit)
         {
-            List<int> digitos = new();
+            string numeroStr = cuit.ToString();
+            int[] digitos = new int[numeroStr.Length];
+            for (int i = 0; i < numeroStr.Length; i++) digitos[i] = int.Parse(numeroStr[i].ToString());
 
-            while (numero > 0)
-            {
-                var digito = numero % 10;
-                numero /= 10;
-                digitos.Add(digito);
-            }
-          
             return digitos;
         }
     }
